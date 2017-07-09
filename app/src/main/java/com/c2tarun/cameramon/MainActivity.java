@@ -1,92 +1,102 @@
 package com.c2tarun.cameramon;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.hardware.Camera;
-import android.os.AsyncTask;
-import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
-import android.view.SurfaceHolder;
 import android.view.SurfaceView;
-import android.view.View;
-import android.widget.Button;
-import android.widget.ImageView;
+import android.view.WindowManager;
 
-import com.c2tarun.cameramon.handler.PictureCaptureHandler;
-import com.c2tarun.cameramon.util.ExecutionTimer;
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.CameraBridgeViewBase;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.core.Core;
+import org.opencv.core.Mat;
+import org.opencv.core.Size;
+import org.opencv.imgproc.Imgproc;
 
-import java.io.IOException;
-import java.util.Timer;
-import java.util.TimerTask;
+public class MainActivity extends AppCompatActivity implements CameraBridgeViewBase.CvCameraViewListener2 {
 
-public class MainActivity extends AppCompatActivity {
-
+    private Mat firstFrame = null;
     private final String TAG = MainActivity.class.getSimpleName();
-    private Camera camera = null;
-    private ImageView previousImageView;
-    private ImageView currentImageView;
-    private Camera.PictureCallback pictureCallbackHandler;
-    private static boolean isTimerRunning = false;
+    private CameraBridgeViewBase openCvCameraView;
+    private BaseLoaderCallback baseLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS: {
+                    Log.i(TAG, "OpenCV loaded successfullly");
+                    openCvCameraView.enableView();
+                    break;
+                }
+                default: {
+                    super.onManagerConnected(status);
+                    break;
+                }
+            }
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        previousImageView = (ImageView) findViewById(R.id.previousImage);
-        currentImageView = (ImageView) findViewById(R.id.currentImage);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        setContentView(R.layout.activity_open_cv);
 
-        pictureCallbackHandler = new PictureCaptureHandler(previousImageView, currentImageView);
-
-        Log.d(TAG, "Looking for Camera");
-        final int cameraId = findCamera(Camera.CameraInfo.CAMERA_FACING_BACK);
-        Log.d(TAG, "Found camera " + cameraId);
-
-        final SurfaceView surfaceView = (SurfaceView) findViewById(R.id.surfaceView);
-        camera = Camera.open(cameraId);
-
-        final Button takePicture = (Button) this.findViewById(R.id.button);
-
-        new Timer("TakePicturePeriodicTimer").schedule(new TimerTask() {
-
-            @Override
-            public void run() {
-                if(!isTimerRunning) {
-                    isTimerRunning = true;
-                    try {
-                        camera.setPreviewDisplay(surfaceView.getHolder());
-                        camera.startPreview();
-                        camera.takePicture(null, null, pictureCallbackHandler);
-                    } catch (IOException e) {
-                        Log.d(TAG, e.getMessage());
-                    } catch (RuntimeException re) {
-                        Log.d(TAG, "RuntimeException happened.");
-                    } finally {
-                        isTimerRunning = false;
-                    }
-                }
-            }
-        }, 700, 1500);
-    }
-
-    private int findCamera(int facing) {
-        int cameraId = -1;
-        int numberOfCamera = Camera.getNumberOfCameras();
-        for(int i = 0; i< numberOfCamera; i++) {
-            Camera.CameraInfo info = new Camera.CameraInfo();
-            Camera.getCameraInfo(i, info);
-            if(info.facing == facing) {
-                cameraId = i;
-                break;
-            }
-        }
-        return cameraId;
+        openCvCameraView = (CameraBridgeViewBase) findViewById(R.id.HelloOpenCvView);
+        openCvCameraView.setVisibility(SurfaceView.VISIBLE);
+        openCvCameraView.setCvCameraViewListener(this);
     }
 
     @Override
-    protected void onDestroy() {
+    public void onPause()
+    {
+        super.onPause();
+        if (openCvCameraView != null)
+            openCvCameraView.disableView();
+    }
+
+    @Override
+    public void onResume()
+    {
+        super.onResume();
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, baseLoaderCallback);
+        } else {
+            Log.d(TAG, "OpenCV library found inside package. Using it!");
+            baseLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+    }
+
+    public void onDestroy() {
         super.onDestroy();
-        Log.d(TAG, "Releasing camera");
-        camera.release();
+        if (openCvCameraView != null)
+            openCvCameraView.disableView();
+    }
+
+    @Override
+    public void onCameraViewStarted(int width, int height) {
+
+    }
+
+    @Override
+    public void onCameraViewStopped() {
+
+    }
+
+    @Override
+    public Mat onCameraFrame(CameraBridgeViewBase.CvCameraViewFrame inputFrame) {
+        Mat currentFrame = inputFrame.gray();
+        if(firstFrame == null) {
+            firstFrame = currentFrame;
+            return inputFrame.gray();
+//            return currentResizedFrame;
+        }
+
+        Mat diff = new Mat();
+        Core.absdiff(firstFrame, currentFrame, diff);
+
+        return diff;
     }
 }
